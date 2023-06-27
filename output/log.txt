@@ -1,2 +1,0 @@
-Arquivo: 01122022.csv - Linha: -1 - Erro ao abrir o arquivo
-Arquivo: a.csv - Linha: -1 - Erro ao abrir o arquivo
