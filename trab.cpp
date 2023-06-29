@@ -92,8 +92,6 @@ void lerArquivosCSVemLote(const string& nomeArquivoLista, map<string, vector<Reg
         string linhaCSV;
         int linhaArquivoCSV = 1;
 
-        map<string, bool> ocorrenciasCrianca;
-
         while (getline(arquivoCSV, linhaCSV)) {
             try {
                 stringstream ss(linhaCSV);
@@ -123,7 +121,6 @@ void lerArquivosCSVemLote(const string& nomeArquivoLista, map<string, vector<Reg
 
                 if (registros.count(nome) > 0 && !registros[nome].empty()) {
                     arquivoLog << "A criança " << nome << " aparece mais de uma vez no arquivo " << caminhoArquivo << " na linha " << linhaArquivoCSV << " do arquivo lote.txt"<<endl;
-                    continue;
                 }
                 registros[nome].push_back(registro);
             } catch (const exception& e) {
