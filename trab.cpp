@@ -4,6 +4,11 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include <exception>
+#include <algorithm>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 using namespace std;
 
@@ -13,9 +18,7 @@ struct Registro {
 };
 
 void lerArquivoCSV(string nomeArquivo, map<string, vector<Registro>>& registros) {
-    if (nomeArquivo.find(".csv") == string::npos) {
-        nomeArquivo += ".csv";
-    }
+    if (nomeArquivo.find(".csv") == string::npos)  nomeArquivo += ".csv";
 
     ifstream arquivo(nomeArquivo);
 
@@ -24,9 +27,8 @@ void lerArquivoCSV(string nomeArquivo, map<string, vector<Registro>>& registros)
         return;
     }
 
-    // Extrair a data do nome do arquivo
     size_t pos = nomeArquivo.find_last_of("/");
-    string dataArquivo = nomeArquivo.substr(pos + 1, 8); // Assume que o formato do nome do arquivo é DDMMYYYY
+    string dataArquivo = nomeArquivo.substr(pos + 1, 8); 
 
     string linha;
     while (getline(arquivo, linha)) {
@@ -48,6 +50,97 @@ void lerArquivoCSV(string nomeArquivo, map<string, vector<Registro>>& registros)
     }
 
     cout << "Arquivo " << nomeArquivo << " lido com sucesso." << endl;
+}
+
+string trim(const string& str) {
+    size_t first = str.find_first_not_of(' ');
+
+    if (string::npos == first) return str;
+    
+    size_t last = str.find_last_not_of(' ');
+    return str.substr(first, (last - first + 1));
+}
+
+void lerArquivosCSVemLote(const string& nomeArquivoLista, map<string, vector<Registro>>& registros) {
+    ifstream arquivoLista(nomeArquivoLista);
+
+    if (!arquivoLista.is_open()) {
+        cerr << "Erro ao abrir o arquivo de lista " << nomeArquivoLista << endl;
+        return;
+    }
+
+    string nomeArquivo;
+    int linha = 1;
+
+    ofstream arquivoLog("log.txt", ios::app);
+
+    while (getline(arquivoLista, nomeArquivo)) {
+        nomeArquivo = trim(nomeArquivo);
+        fs::path caminhoArquivo(nomeArquivo); 
+
+        if (caminhoArquivo.extension().empty() || caminhoArquivo.extension() != ".csv") {
+            caminhoArquivo += ".csv"; 
+        }
+
+        ifstream arquivoCSV(caminhoArquivo);
+        if (!arquivoCSV.is_open()) {
+            arquivoLog << "Erro ao abrir o arquivo " << caminhoArquivo << " na linha " << linha << endl;
+            linha++;
+            continue;
+        }
+
+        string linhaCSV;
+        int linhaArquivoCSV = 1;
+
+        map<string, bool> ocorrenciasCrianca;
+
+        while (getline(arquivoCSV, linhaCSV)) {
+            try {
+                stringstream ss(linhaCSV);
+                string nome;
+                getline(ss, nome, ',');
+                Registro registro;
+                registro.data = caminhoArquivo.filename().stem(); 
+
+                string chave;
+                string valor;
+                while (getline(ss, chave, ',')) {
+                    if (!getline(ss, valor, ',')) {
+                        break;
+                    }
+
+                    try {
+                        int ocorrencia = stoi(valor);
+                        if (ocorrencia < 0) {
+                            throw invalid_argument("O valor de ocorrência deve ser um número inteiro positivo.");
+                        }
+                        registro.ocorrencias[chave] = ocorrencia;
+                    } catch (const exception& e) {
+                        arquivoLog << "Problema encontrado no arquivo " << caminhoArquivo << " na linha " << linhaArquivoCSV << ": " << e.what() << endl;
+                        continue;
+                    }
+                }
+
+                if (registros.count(nome) > 0 && !registros[nome].empty()) {
+                    arquivoLog << "A criança " << nome << " aparece mais de uma vez no arquivo " << caminhoArquivo << " na linha " << linhaArquivoCSV << " do arquivo lote.txt"<<endl;
+                    continue;
+                }
+                registros[nome].push_back(registro);
+            } catch (const exception& e) {
+                arquivoLog << "Problema encontrado no arquivo " << caminhoArquivo << " na linha " << linhaArquivoCSV << ": " << e.what() << endl;
+            }
+
+            linhaArquivoCSV++;
+        }
+
+        arquivoCSV.close();
+        linha++;
+    }
+
+    arquivoLista.close();
+    arquivoLog.close();
+
+    cout << "Processamento dos arquivos em lote concluído." << endl;
 }
 
 void gerarRelatorioPorCrianca(const map<string, vector<Registro>>& registros) {
@@ -76,55 +169,55 @@ void gerarRelatorioPorCrianca(const map<string, vector<Registro>>& registros) {
     }
 }
 
-void gerarRelatorioGeral(const map<string, vector<Registro>>& registros, int op) {
+void gerarRelatorioGeral(const map<string, vector<Registro>>& registros) {
+    vector<string> tipos; 
 
-    string quesito;
+    for (const auto& par : registros) {
+        const vector<Registro>& registrosCrianca = par.second;
 
-    switch(op){
-        case 1:
-          quesito = "penalti";
-          break;
-        case 2:
-          quesito = "falta";
-          break;
-        case 3:
-          quesito = "escanteio";
-          break;
-        case 4:
-          quesito = "gol";
-          break;
-        case 5:
-          quesito = "cruzamento";
-          break;
-        case 6:
-          quesito = "cartao amarelo";
-          break;
-        case 7:
-          quesito = "cartao vermelho";
-          break;
-        case 8:
-          quesito = "drible";
-          break;
-        case 9:
-          quesito = "desarme";
-          break;
-        case 10:
-          quesito = "cabeceio";
-          break;
-        case 11: 
-          quesito = "assistencia";
-          break;
+        for (const Registro& registro : registrosCrianca) {
+            for (const auto& ocorrencia : registro.ocorrencias) {
+                const string& tipo = ocorrencia.first;
+
+                auto it = find(tipos.begin(), tipos.end(), tipo);
+                if (it == tipos.end()) {
+                    tipos.push_back(tipo);
+                }
+            }
+        }
     }
-    cout << "Relatório de " + quesito + " por criança:" << endl;
 
-    bool encontrado = false; // Verificar se há registros do quesito escolhido para alguma criança
+    cout << "Tipos de relatórios disponíveis" << endl;
+    for (size_t i = 0; i < tipos.size(); i++) {
+        cout << "[" << (i + 1) << "] " << tipos[i] << endl;
+    }
+
+    int opcao;
+    cout << "Selecione 0 para sair: ";
+    cin >> opcao;
+
+    if (opcao == 0) {
+        cout << "Operação cancelada." << endl;
+        return;
+    }
+
+    if (opcao < 1 || opcao > static_cast<int>(tipos.size())) {
+        cout << "Opção inválida." << endl;
+        return;
+    }
+
+    string tipoSelecionado = tipos[opcao - 1];
+
+    cout << "Relatório de " << tipoSelecionado << " por criança:" << endl;
+
+    bool encontrado = false;
 
     for (const auto& par : registros) {
         const string& nome = par.first;
         const vector<Registro>& registrosCrianca = par.second;
 
         for (const Registro& registro : registrosCrianca) {
-            auto itQuesito = registro.ocorrencias.find(quesito);
+            auto itQuesito = registro.ocorrencias.find(tipoSelecionado);
             if (itQuesito != registro.ocorrencias.end()) {
                 if (!encontrado) {
                     encontrado = true;
@@ -134,14 +227,14 @@ void gerarRelatorioGeral(const map<string, vector<Registro>>& registros, int op)
                 string dataFormatada = registro.data.substr(0, 2) + "/" + registro.data.substr(2, 2) + "/" + registro.data.substr(4, 4);
                 cout << "Criança: " << nome << endl;
                 cout << "Data: " << dataFormatada << endl;
-                cout << "  - " + quesito + ": " << itQuesito->second << endl;
+                cout << "  - " + tipoSelecionado + ": " << itQuesito->second << endl;
                 cout << endl;
             }
         }
     }
 
     if (!encontrado) {
-        cout << "Não foram encontrados registros de " + quesito + " para nenhuma criança." << endl;
+        cout << "Não foram encontrados registros de " + tipoSelecionado + " para nenhuma criança." << endl;
     }
 }
 
@@ -252,14 +345,15 @@ int main() {
   int opcao;
   while (true) {
     cout << "Escolha uma opção:" << endl;
-    cout << "1 - Ler arquivo CSV" << endl;
-    cout << "2 - Gerar relatório por criança" << endl;
-    cout << "3 - Gerar relatório geral por quesito" << endl;
-    cout << "4 - Salvar registros em arquivo binário" << endl;
-    cout << "5 - Carregar registros de um arquivo binario" << endl;
-    cout << "0 - Sair" << endl;
-    cout << "Opção: ";
-    cin >> opcao;
+      cout << "1 - Ler arquivo CSV" << endl;
+      cout << "2 - Gerar relatório por criança" << endl;
+      cout << "3 - Gerar relatório geral por quesito" << endl;
+      cout << "4 - Salvar registros em arquivo binário" << endl;
+      cout << "5 - Carregar registros de um arquivo binário" << endl;
+      cout << "6 - Ler arquivos CSV em lote" << endl;
+      cout << "0 - Sair" << endl;
+      cout << "Opção: ";
+      cin >> opcao;
 
     switch (opcao) {
     case 1: {
@@ -269,24 +363,28 @@ int main() {
       getline(cin, nomeArquivo);
       lerArquivoCSV(nomeArquivo, registros);
       break;
-    }
+      }
     case 2:
       gerarRelatorioPorCrianca(registros);
       break;
-    case 3:
-      {
-        int op = 8;
-        cout << "ESCOLHA A OPÇÃO PARA GERAR O RELATÓRIO:\n[1] Penalti\n[2] Falta\n[3] Escanteio\n[4] Gol\n[5] Cruzamento\n[6] Cartão Amarelo\n[7] Cartão Vermelho\n[8] Drible\n[9] Desarme\n[10] Cabeceio\n[11] Assistência\n[->] ";
-        cin >> op;
-        gerarRelatorioGeral(registros, op);
+    case 3:{
+        gerarRelatorioGeral(registros);
+        break;
       }
     case 4:
       salvarRegistrosEmArquivoBinario(registros);
       break;
     case 5:
-      // Carregar registros do arquivo binário, se existir
       carregarRegistrosDeArquivoBinario(registros);
       break;
+    case 6: {
+            string nomeArquivoLista;
+            cout << "Digite o nome do arquivo de lista: ";
+            cin.ignore();
+            getline(cin, nomeArquivoLista);
+            lerArquivosCSVemLote(nomeArquivoLista, registros);
+            break;
+        }
     case 0:
       cout << "Encerrando o programa." << endl;
       return 0;
